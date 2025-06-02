@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"os"
 	"path/filepath"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -38,8 +39,14 @@ func main() {
 		klog.Fatal(err)
 	}
 
-	slack := NewSlack()
-	controller := NewController(clientset, slack)
+	notifierType := os.Getenv("NOTIFIER_TYPE")
+	var notifier Notifier
+	if notifierType == "discord" {
+		notifier = NewDiscordNotifier()
+	} else {
+		notifier = NewSlack()
+	}
+	controller := NewController(clientset, notifier)
 
 	// Start the controller
 	stop := make(chan struct{})

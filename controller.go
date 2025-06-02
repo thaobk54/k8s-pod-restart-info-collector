@@ -26,16 +26,20 @@ const (
 	SlackChannelKey = "alert-slack-channel"
 )
 
+type clusterNamer interface {
+	GetClusterName() string
+}
+
 type Controller struct {
 	clientset       kubernetes.Interface
-	slack           Slack
+	notifier        Notifier
 	informerFactory informers.SharedInformerFactory
 	podInformer     coreinformers.PodInformer
 	queue           workqueue.RateLimitingInterface
 }
 
 // NewController creates a new Controller.
-func NewController(clientset kubernetes.Interface, slack Slack) *Controller {
+func NewController(clientset kubernetes.Interface, notifier Notifier) *Controller {
 	const resyncPeriod = 0
 	ignoreRestartCount := getIgnoreRestartCount()
 
@@ -85,7 +89,7 @@ func NewController(clientset kubernetes.Interface, slack Slack) *Controller {
 		informerFactory: informerFactory,
 		podInformer:     podInformer,
 		queue:           queue,
-		slack:           slack,
+		notifier:        notifier,
 	}
 }
 
@@ -201,42 +205,32 @@ func (c *Controller) getPodFromIndexer(key string) (*v1.Pod, error) {
 
 // handlePod collects and sends related info to slack.
 func (c *Controller) handlePod(pod *v1.Pod) error {
-	// Skip if pod in slack.History
 	podKey := pod.Namespace + "/" + pod.Name
-
 	currentTime := time.Now().Local()
-	if lastSentTime, ok := c.slack.History[podKey]; ok {
-		if int(currentTime.Sub(lastSentTime).Seconds()) < c.slack.MuteSeconds {
+	if lastSentTime, ok := c.notifier.GetHistory()[podKey]; ok {
+		if int(currentTime.Sub(lastSentTime).Seconds()) < c.notifier.GetMuteSeconds() {
 			klog.Infof("Skip: %s, already sent %s ago.\n", podKey, duration.HumanDuration(time.Since(lastSentTime)))
 			return nil
 		}
 	}
-
-	// check and collect restarted container info
 	for _, status := range pod.Status.ContainerStatuses {
 		if status.RestartCount == 0 {
 			continue
 		}
-
 		if shouldIgnoreRestartsWithExitCodeZero(status) {
 			klog.Infof("Ignore: %s restarted with ExitCode 0, restartCount: %d\n", podKey, status.RestartCount)
 			continue
 		}
-
 		klog.Infof("Handle: %s restarted, restartCount: %d\n", podKey, status.RestartCount)
-
 		podInfo, err := printPod(pod)
 		if err != nil {
 			return err
 		}
-
 		containerState, err := describeContainerState(status)
 		if err != nil {
 			return err
 		}
-
 		restartReason := printContainerLastStateReason(status)
-
 		var containerSpec v1.Container
 		for _, container := range pod.Spec.Containers {
 			if status.Name == container.Name {
@@ -248,8 +242,7 @@ func (c *Controller) handlePod(pod *v1.Pod) error {
 		if err != nil {
 			return err
 		}
-
-		podStatus := fmt.Sprintf("```%s```\n• Reason: `%s`\n• Pod Status\n```\n%s%s```\n", podInfo, restartReason, containerState, containerResource)
+		podStatus := fmt.Sprintf("```%s```\n• Reason: `%s`\n• Pod Status\n```\n%s%s```", podInfo, restartReason, containerState, containerResource)
 		podEvents, err := c.getPodEvents(pod)
 		if err != nil {
 			return err
@@ -258,7 +251,6 @@ func (c *Controller) handlePod(pod *v1.Pod) error {
 		if err != nil {
 			return err
 		}
-
 		containerLogs, err := c.getContainerLogs(pod, status)
 		if err != nil {
 			return err
@@ -266,27 +258,28 @@ func (c *Controller) handlePod(pod *v1.Pod) error {
 		if containerLogs == "" {
 			containerLogs = "• No Logs Before Restart\n"
 		} else {
-			// Slack attachment text will be truncated when > 8000 chars
 			maxLogLength := 7500 - len(podStatus+podEvents+nodeEvents)
 			if maxLogLength > 0 && len(containerLogs) > maxLogLength {
 				containerLogs = containerLogs[len(containerLogs)-maxLogLength:]
 			}
-			containerLogs = fmt.Sprintf("• Pod Logs Before Restart\n```\n%s```\n", containerLogs)
 		}
-
+		var clusterName string
+		if v, ok := c.notifier.(clusterNamer); ok {
+			clusterName = v.GetClusterName()
+		} else {
+			clusterName = "unknown"
+		}
 		msg := SlackMessage{
-			Title:  fmt.Sprintf("*Pod restarted!*\n*cluster: `%s`, pod: `%s`, namespace: `%s`*", c.slack.ClusterName, pod.Name, pod.Namespace),
+			Title:  fmt.Sprintf("*Pod restarted!*\n*cluster: `%s`, pod: `%s`, namespace: `%s`*", clusterName, pod.Name, pod.Namespace),
 			Text:   podStatus + podEvents + nodeEvents + containerLogs,
-			Footer: fmt.Sprintf("%s, %s, %s", c.slack.ClusterName, pod.Name, pod.Namespace),
+			Footer: fmt.Sprintf("%s, %s, %s", pod.Namespace, pod.Name, pod.Namespace),
 		}
-		// klog.Infoln(msg.Title + "\n" + msg.Text + "\n" + msg.Footer)
-		slackChannel := getSlackChannelFromPod(pod)
-		err = c.slack.sendToChannel(msg, slackChannel)
+		notifierChannel := getSlackChannelFromPod(pod)
+		err = c.notifier.SendToChannel(msg, notifierChannel)
 		if err != nil {
 			return err
 		}
-
-		c.slack.History[podKey] = currentTime
+		c.notifier.SetHistory(podKey, currentTime)
 		c.cleanOldSlackHistory()
 		break
 	}
@@ -368,9 +361,9 @@ func (c *Controller) getContainerLogs(pod *v1.Pod, containerStatus v1.ContainerS
 // cleanOldSlackHistory deletes old pod name from the c.slack.History.
 func (c *Controller) cleanOldSlackHistory() {
 	currentTime := time.Now().Local()
-	for pod, lastSentTime := range c.slack.History {
+	for pod, lastSentTime := range c.notifier.GetHistory() {
 		if currentTime.Sub(lastSentTime).Hours() > 1 {
-			delete(c.slack.History, pod)
+			delete(c.notifier.GetHistory(), pod)
 		}
 	}
 }
@@ -385,3 +378,6 @@ func getSlackChannelFromPod(pod *v1.Pod) string {
 	}
 	return ""
 }
+
+func (s *Slack) GetClusterName() string           { return s.ClusterName }
+func (d *DiscordNotifier) GetClusterName() string { return d.ClusterName }
