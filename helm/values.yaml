@@ -31,7 +31,7 @@ ignoreRestartsWithExitCodeZero: false
 
 image:
   repository: thaovu/k8s-pod-restart-collector
-  tag: "v7"
+  tag: "v8"
 
 resources: 
   limits:
