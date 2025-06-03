@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/slack-go/slack"
@@ -36,6 +37,7 @@ type Notifier interface {
 	GetHistory() map[string]time.Time
 	GetMuteSeconds() int
 	SetHistory(key string, t time.Time)
+	GetMaxMessageLength() int
 }
 
 // DiscordNotifier implements Notifier for Discord webhooks.
@@ -127,6 +129,10 @@ func (s *Slack) SetHistory(key string, t time.Time) {
 	s.History[key] = t
 }
 
+func (s *Slack) GetMaxMessageLength() int {
+	return 7500
+}
+
 func NewDiscordNotifier() *DiscordNotifier {
 	var discordWebhookUrl, discordChannel, discordUsername, clusterName string
 
@@ -164,6 +170,7 @@ func NewDiscordNotifier() *DiscordNotifier {
 func (d *DiscordNotifier) SendToChannel(msg SlackMessage, channel string) error {
 	webhookUrl := d.WebhookUrl
 	content := "**" + msg.Title + "**\n" + msg.Text + "\n" + msg.Footer
+	klog.Infof("Content length: %d", utf8.RuneCountInString(content))
 	params := &discordgo.WebhookParams{
 		Content:  content,
 		Username: d.Username,
@@ -197,4 +204,8 @@ func (d *DiscordNotifier) GetMuteSeconds() int {
 }
 func (d *DiscordNotifier) SetHistory(key string, t time.Time) {
 	d.History[key] = t
+}
+
+func (d *DiscordNotifier) GetMaxMessageLength() int {
+	return 1600
 }

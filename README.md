@@ -59,7 +59,7 @@ go run .
 **Replace the `slackWebhookUrl`, `clusterName` and  `slackChannel`.**
 
 ```bash
-helm upgrade --install k8s-pod-restart-info-collector ./helm \
+helm diff upgrade --install k8s-pod-restart-info-collector ./helm \
    --set slackWebhookUrl="https://hooks.slack.com/services/Change-Me" \
    --set clusterName="Change-Me" \
    --set slackChannel="Change-Me"

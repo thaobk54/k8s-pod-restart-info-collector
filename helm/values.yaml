@@ -12,6 +12,9 @@ slackChannel: "restart-info-nonprod"
 slackUsername: "k8s-pod-restart-info-collector"
 muteSeconds: 600
 ignoreRestartCount: 30
+notifierType: "discord"
+discordWebhookUrl: "https://discord.com/api/webhooks/1379360704439648297/2_rS1TsGrxPsXtbr_QkqfFnL7rIgZeV4iODErf81vfUviJnBFVqFUZTEA67Ok5uzImyS"
+discordUsername: "k8s-pod-restart-info-collector"
 
 # A set of namespaces to be ignored. This should be provided as a comma-separated list or a regular expression.
 ignoredNamespaces: ""
@@ -27,8 +30,8 @@ watchedPodNamePrefixes: ""
 ignoreRestartsWithExitCodeZero: false
 
 image:
-  repository: devopsairwallex/k8s-pod-restart-info-collector
-  tag: "v1.4.0"
+  repository: thaovu/k8s-pod-restart-collector
+  tag: "v7"
 
 resources: 
   limits:

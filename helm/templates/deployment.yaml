@@ -51,6 +51,12 @@ spec:
               value: {{ .Values.ignoredPodNamePrefixes | quote}}
             - name: IGNORE_RESTARTS_WITH_EXIT_CODE_ZERO
               value: {{ .Values.ignoreRestartsWithExitCodeZero | quote}}
+            - name: NOTIFIER_TYPE
+              value: {{ .Values.notifierType | quote}}
+            - name: DISCORD_WEBHOOK_URL
+              value: {{ .Values.discordWebhookUrl | quote}}
+            - name: DISCORD_USERNAME
+              value: {{ .Values.discordUsername | quote}}
             - name: SLACK_WEBHOOK_URL
               valueFrom:
               {{- include "k8s-pod-restart-info-collector.SlackWebhookUrlSecret" . | indent 14 }}

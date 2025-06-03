@@ -258,10 +258,13 @@ func (c *Controller) handlePod(pod *v1.Pod) error {
 		if containerLogs == "" {
 			containerLogs = "• No Logs Before Restart\n"
 		} else {
-			maxLogLength := 7500 - len(podStatus+podEvents+nodeEvents)
+			maxMsgLen := c.notifier.GetMaxMessageLength()
+			maxLogLength := maxMsgLen - len(podStatus+podEvents+nodeEvents)
 			if maxLogLength > 0 && len(containerLogs) > maxLogLength {
 				containerLogs = containerLogs[len(containerLogs)-maxLogLength:]
 			}
+
+			containerLogs = fmt.Sprintf("• Pod Logs Before Restart\n```\n%s```\n", containerLogs)
 		}
 		var clusterName string
 		if v, ok := c.notifier.(clusterNamer); ok {
@@ -272,7 +275,7 @@ func (c *Controller) handlePod(pod *v1.Pod) error {
 		msg := SlackMessage{
 			Title:  fmt.Sprintf("*Pod restarted!*\n*cluster: `%s`, pod: `%s`, namespace: `%s`*", clusterName, pod.Name, pod.Namespace),
 			Text:   podStatus + podEvents + nodeEvents + containerLogs,
-			Footer: fmt.Sprintf("%s, %s, %s", pod.Namespace, pod.Name, pod.Namespace),
+			Footer: fmt.Sprintf("`%s`, `%s`, `%s`", clusterName, pod.Name, pod.Namespace),
 		}
 		notifierChannel := getSlackChannelFromPod(pod)
 		err = c.notifier.SendToChannel(msg, notifierChannel)
